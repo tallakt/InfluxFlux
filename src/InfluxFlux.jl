@@ -8,10 +8,24 @@ using DataFrames
 export influx_server, flux, flux_to_dataframe, measurement, measurements,
 buckets
 
+
+TimeSpec = Union{Int,DateTime}
+
+
 struct InfluxServer
   uri::String
   org::String
   api_token::String
+end
+
+
+function time_spec_to_timestamp(time_spec::Int)
+  time_spec
+end
+
+
+function time_spec_to_timestamp(time_spec::DateTime)
+  Int(1_000_000_000 * datetime2unix(time_spec))
 end
 
 
@@ -47,10 +61,10 @@ function flux_to_dataframe(srv::InfluxServer, flux_query::String)
 end
 
 
-function measurement(srv::InfluxServer, bucket::String, measurement_name::String, from::UInt64, to::UInt64)
+function measurement(srv::InfluxServer, bucket::String, measurement_name::String, from::TimeSpec, to::TimeSpec)
   q = """
     from(bucket: "$bucket")
-    |> range(start: time(v: uint(v: $from)), stop: time(v: uint(v: $to)))
+    |> range(start: time(v: uint(v: $(time_spec_to_timestamp(from)))), stop: time(v: uint(v: $(time_spec_to_timestamp(to)))))
       |> filter(fn: (r) => r._measurement == "$measurement_name")
       |> pivot(rowKey:["_time"], columnKey: ["_field"], valueColumn: "_value")
       |> map(fn: (r) => ({ r with _time: uint(v: r._time) }))
@@ -61,10 +75,18 @@ function measurement(srv::InfluxServer, bucket::String, measurement_name::String
 end
 
 
-function measurement(srv::InfluxServer, bucket::String, measurement_name::String, from_utc::DateTime, to_utc::DateTime)
-  t0 = UInt64(1_000_000_000 * datetime2unix(from_utc))
-  t1 = UInt64(1_000_000_000 * datetime2unix(to_utc))
-  measurement(srv, bucket, measurement_name, t0, t1)
+function aggregate_measurement(srv::InfluxServer, bucket::String, measurement_name::String, from::TimeSpec, to::TimeSpec, window::Period; fn::String = "mean")
+  q = """
+    from(bucket: "$bucket")
+    |> range(start: time(v: uint(v: $(time_spec_to_timestamp(from)))), stop: time(v: uint(v: $(time_spec_to_timestamp(to)))))
+      |> filter(fn: (r) => r._measurement == "$measurement_name")
+      |> aggregateWindow(every: $(Nanosecond(window).value)ns, fn: $fn, createEmpty: false)
+      |> pivot(rowKey:["_time"], columnKey: ["_field"], valueColumn: "_value")
+      |> map(fn: (r) => ({ r with _time: uint(v: r._time) }))
+  """
+  #println(q)
+  result = flux_to_dataframe(srv, q)
+  result[:,7:end] # remove influxdb internal columns
 end
 
 
