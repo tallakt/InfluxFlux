@@ -5,8 +5,8 @@ using CSV
 using Dates
 using DataFrames
 
-export influx_server, flux, flux_to_dataframe, measurement, measurements,
-buckets
+export time_spec_to_timestamp, influx_server, flux, flux_to_dataframe,
+       measurement, aggregate_measurement, measurements, buckets
 
 
 TimeSpec = Union{Int,DateTime}
