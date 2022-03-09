@@ -4,12 +4,13 @@ using HTTP
 using CSV
 using Dates
 using DataFrames
+using TimeZones
 
-export time_spec_to_timestamp, influx_server, flux, flux_to_dataframe,
+export time_spec_to_epoc_ns, influx_server, flux, flux_to_dataframe,
        measurement, aggregate_measurement, measurements, buckets
 
 
-TimeSpec = Union{Int,DateTime}
+TimeSpec = Union{Int,DateTime,ZonedDateTime}
 
 
 struct InfluxServer
@@ -19,12 +20,17 @@ struct InfluxServer
 end
 
 
-function time_spec_to_timestamp(time_spec::Int)
+function time_spec_to_epoc_ns(time_spec::Int)
   time_spec
 end
 
 
-function time_spec_to_timestamp(time_spec::DateTime)
+function time_spec_to_epoc_ns(time_spec::ZonedDateTime)
+  time_spec_to_epoc_ns(DateTime(time_spec, UTC))
+end
+
+
+function time_spec_to_epoc_ns(time_spec::DateTime)
   Int(1_000_000_000 * datetime2unix(time_spec))
 end
 
@@ -64,7 +70,7 @@ end
 function measurement(srv::InfluxServer, bucket::String, measurement_name::String, from::TimeSpec, to::TimeSpec)
   q = """
     from(bucket: "$bucket")
-    |> range(start: time(v: uint(v: $(time_spec_to_timestamp(from)))), stop: time(v: uint(v: $(time_spec_to_timestamp(to)))))
+    |> range(start: time(v: uint(v: $(time_spec_to_epoc_ns(from)))), stop: time(v: uint(v: $(time_spec_to_epoc_ns(to)))))
       |> filter(fn: (r) => r._measurement == "$measurement_name")
       |> pivot(rowKey:["_time"], columnKey: ["_field"], valueColumn: "_value")
       |> map(fn: (r) => ({ r with _time: uint(v: r._time) }))
@@ -78,7 +84,7 @@ end
 function aggregate_measurement(srv::InfluxServer, bucket::String, measurement_name::String, from::TimeSpec, to::TimeSpec, window::Period; fn::String = "mean")
   q = """
     from(bucket: "$bucket")
-    |> range(start: time(v: uint(v: $(time_spec_to_timestamp(from)))), stop: time(v: uint(v: $(time_spec_to_timestamp(to)))))
+    |> range(start: time(v: uint(v: $(time_spec_to_epoc_ns(from)))), stop: time(v: uint(v: $(time_spec_to_epoc_ns(to)))))
       |> filter(fn: (r) => r._measurement == "$measurement_name")
       |> aggregateWindow(every: $(Nanosecond(window).value)ns, fn: $fn, createEmpty: false)
       |> pivot(rowKey:["_time"], columnKey: ["_field"], valueColumn: "_value")
